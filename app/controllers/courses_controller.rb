@@ -58,21 +58,64 @@ class CoursesController < ApplicationController
   #-------------------------for students----------------------
 
   def list
-    #-------QiaoCode--------
-    @courses = Course.where(:open=>true).paginate(page: params[:page], per_page: 4)
-    @course = @courses-current_user.courses
-    tmp=[]
-    @course.each do |course|
-      if course.open==true
-        tmp<<course
+    excluded_courses_id = [-1]
+    current_user.courses.each do |course|
+      excluded_courses_id << course.id
+    end
+    @courses = Course.where("open = ? and id not in (?)", true, excluded_courses_id).paginate(page: params[:page], per_page: 4)
+    if params.has_key?(:course_time)
+      ctime = params[:course_time]
+      ctype = params[:course_type]
+      cname = params[:course_name]
+      if ctime == "不限" and ctype != "不限" and cname == ""
+        @courses = Course.where("open = ? and course_type like ? and id not in (?)", true, ctype, excluded_courses_id).paginate(page: params[:page], per_page: 4)
+      elsif ctime == "不限" and ctype != "不限" and cname != ""
+        @courses = Course.where("open = ? and course_type like ? and name like ? and id not in (?)", true, ctype, "%#{cname}%", excluded_courses_id).paginate(page: params[:page], per_page: 4)
+      elsif ctime == "不限" and ctype == "不限" and cname != ""
+        @courses = Course.where("open = ? and name like ? and id not in (?)", true, "%#{cname}%", excluded_courses_id).paginate(page: params[:page], per_page: 4)
+      elsif ctime != "不限" and ctype == "不限" and cname == ""
+        @courses = Course.where("open = ? and course_time like ? and id not in (?)", true, "%#{ctime}%", excluded_courses_id).paginate(page: params[:page], per_page: 4)
+      elsif ctime != "不限" and ctype == "不限" and cname != ""
+        @courses = Course.where("open = ? and course_time like ? and name like ? and id not in (?)", true, "%#{ctime}%", "%#{cname}%", excluded_courses_id).paginate(page: params[:page], per_page: 4)
+      elsif ctime != "不限" and ctype != "不限" and cname == ""
+        @courses = Course.where("open = ? and  course_time like ? and course_type = ? and id not in (?)", true, "%#{ctime}%", ctype, excluded_courses_id).paginate(page: params[:page], per_page: 4)
+      elsif ctime != "不限" and ctype != "不限" and cname != ""
+        @courses = Course.where("open = ? and  course_time like ? and course_type = ? and name like ? and id not in (?)", true, "%#{ctime}%", ctype, "%#{cname}%", excluded_courses_id).paginate(page: params[:page], per_page: 4)
       end
     end
-    @course=tmp
   end
 
+  def hint
+    @courses = current_user.courses
+  end
+
+  def table
+  
+  end
+  
   def select
     @course=Course.find_by_id(params[:id])
+    current_user.courses.each do |c|
+      if c.course_time[0..4] == @course.course_time[0..4]
+        flash={:warning => "与已选课程：#{c.name}时间冲突"}
+        redirect_to list_courses_path, flash: flash
+        return
+      end
+      if c.name[0..3] == @course.name[0..3]
+        flash={:warning => "您过去已选择了课程：#{c.name}"}
+        redirect_to list_courses_path, flash: flash
+        return
+      end
+    end
     current_user.courses<<@course
+    sc = 0
+    @course.users.each do |u|
+      if !u.teacher and !u.admin
+        sc += 1
+      end
+    end
+    @course.student_num = sc
+    @course.save
     flash={:suceess => "成功选择课程: #{@course.name}"}
     redirect_to courses_path, flash: flash
   end
@@ -80,6 +123,14 @@ class CoursesController < ApplicationController
   def quit
     @course=Course.find_by_id(params[:id])
     current_user.courses.delete(@course)
+    sc = 0
+    @course.users.each do |u|
+      if !u.teacher and !u.admin
+        sc += 1
+      end
+    end
+    @course.student_num = sc
+    @course.save
     flash={:success => "成功退选课程: #{@course.name}"}
     redirect_to courses_path, flash: flash
   end
@@ -120,6 +171,4 @@ class CoursesController < ApplicationController
     params.require(:course).permit(:course_code, :name, :course_type, :teaching_type, :exam_type,
                                    :credit, :limit_num, :class_room, :course_time, :course_week)
   end
-
-
 end
